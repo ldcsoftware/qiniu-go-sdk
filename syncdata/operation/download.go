@@ -120,9 +120,6 @@ func fileExists(filename string) bool {
 }
 
 func (d *Downloader) downloadFileInner(key, host, path string) (*os.File, error) {
-	if strings.HasPrefix(key, "/") {
-		key = strings.TrimPrefix(key, "/")
-	}
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return nil, err
@@ -169,10 +166,6 @@ func (d *Downloader) downloadFileInner(key, host, path string) (*os.File, error)
 }
 
 func (d *Downloader) downloadBytesInner(key, host string) ([]byte, error) {
-	if strings.HasPrefix(key, "/") {
-		key = strings.TrimPrefix(key, "/")
-	}
-
 	url := fmt.Sprintf("%s/getfile/%s/%s/%s", host, d.credentials.AccessKey, d.bucket, key)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -217,10 +210,6 @@ func readAll(r io.Reader, initBuf []byte) (b []byte, err error) {
 }
 
 func (d *Downloader) downloadRangeBytesInner(key, host string, offset, size int64, initBuf []byte) (int64, []byte, error) {
-	if strings.HasPrefix(key, "/") {
-		key = strings.TrimPrefix(key, "/")
-	}
-
 	url := fmt.Sprintf("%s/getfile/%s/%s/%s", host, d.credentials.AccessKey, d.bucket, key)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {

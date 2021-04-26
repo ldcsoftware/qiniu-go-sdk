@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/ldcsoftware/qiniu-go-sdk/x/bytes.v7"
@@ -55,7 +54,6 @@ func (p *Uploader) UploadData(ctx context.Context, key string, data []byte, ret 
 	defer func() {
 		elog.Info("up time ", key, time.Now().Sub(t))
 	}()
-	key = strings.TrimPrefix(key, "/")
 	policy := kodo.PutPolicy{
 		Scope:   p.bucket + ":" + key,
 		Expires: 3600*24 + uint32(time.Now().Unix()),
@@ -79,7 +77,6 @@ func (p *Uploader) UploadDataReader(ctx context.Context, data io.ReadSeeker, siz
 	defer func() {
 		elog.Info("up time ", key, time.Now().Sub(t))
 	}()
-	key = strings.TrimPrefix(key, "/")
 	policy := kodo.PutPolicy{
 		Scope:   p.bucket + ":" + key,
 		Expires: 3600*24 + uint32(time.Now().Unix()),
@@ -109,7 +106,6 @@ func (p *Uploader) UploadDataReaderAt(ctx context.Context, key string, data io.R
 	defer func() {
 		elog.Info("up time ", key, time.Now().Sub(t))
 	}()
-	key = strings.TrimPrefix(key, "/")
 	policy := kodo.PutPolicy{
 		Scope:   p.bucket + ":" + key,
 		Expires: 3600*24 + uint32(time.Now().Unix()),
@@ -135,7 +131,6 @@ func (p *Uploader) Upload(ctx context.Context, file string, key string) (err err
 	defer func() {
 		elog.Info("up time ", key, time.Now().Sub(t))
 	}()
-	key = strings.TrimPrefix(key, "/")
 	policy := kodo.PutPolicy{
 		Scope:   p.bucket + ":" + key,
 		Expires: 3600*24 + uint32(time.Now().Unix()),
@@ -186,7 +181,6 @@ func (p *Uploader) UploadWithDataChan(ctx context.Context, key string, concurren
 	defer func() {
 		elog.Info("up time ", key, time.Now().Sub(t))
 	}()
-	key = strings.TrimPrefix(key, "/")
 	policy := kodo.PutPolicy{
 		Scope:   p.bucket + ":" + key,
 		Expires: 3600*24 + uint32(time.Now().Unix()),
