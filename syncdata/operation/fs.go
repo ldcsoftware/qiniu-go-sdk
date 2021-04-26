@@ -619,6 +619,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, fs FileSystem, name strin
 			defer ff.Close()
 			dd, err := ff.Stat()
 			if err == nil {
+				name = index
 				d = dd
 				f = ff
 			}

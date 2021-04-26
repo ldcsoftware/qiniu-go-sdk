@@ -1,8 +1,6 @@
 package operation
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -12,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/qiniupd/qiniu-go-sdk/x/bytes.v7"
+
 	"github.com/qiniupd/qiniu-go-sdk/api.v8/auth/qbox"
 	"github.com/qiniupd/qiniu-go-sdk/api.v8/kodo"
 	q "github.com/qiniupd/qiniu-go-sdk/api.v8/kodocli"
@@ -19,12 +19,13 @@ import (
 
 type Uploader struct {
 	bucket        string
+	upHosts       []string
 	upSelector    *HostSelector
 	credentials   *qbox.Mac
 	partSize      int64
 	upConcurrency int
 	queryer       *Queryer
-	tries         int
+	retry         int
 	transport     http.RoundTripper
 }
 
@@ -37,26 +38,22 @@ func (p *Uploader) makeUptoken(policy *kodo.PutPolicy) string {
 	return qbox.SignWithData(p.credentials, b)
 }
 
-func (p *Uploader) retry(uploader *q.Uploader, f func() error) (err error) {
-	for i := 0; i < p.tries; i++ {
+func (p *Uploader) Retry(uploader *q.Uploader, f func() error) (err error) {
+	for i := 0; i < p.retry; i++ {
 		err = f()
 		if shouldRetry(err) {
-			elog.Warn("upload try failed. punish host", i, err)
+			elog.Info("upload try failed. punish host", i, err)
 			continue
 		}
 		break
 	}
-	return
+	return err
 }
 
-func (p *Uploader) UploadData(data []byte, key string) error {
-	return p.UploadDataWithContext(context.Background(), data, key, nil)
-}
-
-func (p *Uploader) UploadDataWithContext(ctx context.Context, data []byte, key string, ret interface{}) error {
+func (p *Uploader) UploadData(ctx context.Context, key string, data []byte, ret interface{}) (err error) {
 	t := time.Now()
 	defer func() {
-		elog.Info("upload file:", key, "time:", time.Since(t))
+		elog.Info("up time ", key, time.Now().Sub(t))
 	}()
 	key = strings.TrimPrefix(key, "/")
 	policy := kodo.PutPolicy{
@@ -72,27 +69,15 @@ func (p *Uploader) UploadDataWithContext(ctx context.Context, data []byte, key s
 		Transport:      p.transport,
 		HostSelector:   p.upSelector,
 	})
-	return p.retry(&uploader, func() error {
+	return p.Retry(&uploader, func() error {
 		return uploader.Put2(ctx, ret, upToken, key, bytes.NewReader(data), int64(len(data)), nil)
 	})
 }
 
-func (p *Uploader) UploadDataReaderAt(data io.ReaderAt, size int64, key string) error {
-	return p.UploadDataReader(data, size, key)
-}
-
-func (p *Uploader) UploadDataReaderAtWithContext(ctx context.Context, data io.ReaderAt, size int64, key string, ret interface{}) error {
-	return p.UploadDataReaderWithContext(ctx, data, size, key, ret)
-}
-
-func (p *Uploader) UploadDataReader(data io.ReaderAt, size int64, key string) error {
-	return p.UploadDataReaderWithContext(context.Background(), data, size, key, nil)
-}
-
-func (p *Uploader) UploadDataReaderWithContext(ctx context.Context, data io.ReaderAt, size int64, key string, ret interface{}) error {
+func (p *Uploader) UploadDataReader(ctx context.Context, data io.ReadSeeker, size int, key string) (err error) {
 	t := time.Now()
 	defer func() {
-		elog.Info("upload file:", key, "time:", time.Since(t))
+		elog.Info("up time ", key, time.Now().Sub(t))
 	}()
 	key = strings.TrimPrefix(key, "/")
 	policy := kodo.PutPolicy{
@@ -109,19 +94,46 @@ func (p *Uploader) UploadDataReaderWithContext(ctx context.Context, data io.Read
 		HostSelector:   p.upSelector,
 	})
 
-	return p.retry(&uploader, func() error {
-		return uploader.Put2(ctx, ret, upToken, key, newReaderAtNopCloser(data), size, nil)
+	return p.Retry(&uploader, func() error {
+		err := uploader.Put2(ctx, nil, upToken, key, ioutil.NopCloser(data), int64(size), nil)
+		if err == nil {
+			return nil
+		}
+		_, err = data.Seek(0, io.SeekStart)
+		return err
 	})
 }
 
-func (p *Uploader) Upload(file string, key string) error {
-	return p.UploadWithContext(context.Background(), file, key, nil)
-}
-
-func (p *Uploader) UploadWithContext(ctx context.Context, file string, key string, ret interface{}) error {
+func (p *Uploader) UploadDataReaderAt(ctx context.Context, key string, data io.ReaderAt, size int64, ret interface{}) (err error) {
 	t := time.Now()
 	defer func() {
-		elog.Info("upload file:", key, "time:", time.Since(t))
+		elog.Info("up time ", key, time.Now().Sub(t))
+	}()
+	key = strings.TrimPrefix(key, "/")
+	policy := kodo.PutPolicy{
+		Scope:   p.bucket + ":" + key,
+		Expires: 3600*24 + uint32(time.Now().Unix()),
+	}
+
+	upToken := p.makeUptoken(&policy)
+
+	var uploader = q.NewUploader(1, &q.UploadConfig{
+		UploadPartSize: p.partSize,
+		Concurrency:    p.upConcurrency,
+		Transport:      p.transport,
+		HostSelector:   p.upSelector,
+	})
+
+	return p.Retry(&uploader, func() error {
+		var r io.Reader = io.NewSectionReader(data, 0, size)
+		return uploader.Put2(ctx, ret, upToken, key, ioutil.NopCloser(r), int64(size), nil)
+	})
+}
+
+func (p *Uploader) Upload(ctx context.Context, file string, key string) (err error) {
+	t := time.Now()
+	defer func() {
+		elog.Info("up time ", key, time.Now().Sub(t))
 	}()
 	key = strings.TrimPrefix(key, "/")
 	policy := kodo.PutPolicy{
@@ -132,14 +144,14 @@ func (p *Uploader) UploadWithContext(ctx context.Context, file string, key strin
 
 	f, err := os.Open(file)
 	if err != nil {
-		elog.Error("open file failed: ", file, err)
+		elog.Info("open file failed: ", file, err)
 		return err
 	}
 	defer f.Close()
 
 	fInfo, err := f.Stat()
 	if err != nil {
-		elog.Error("get file stat failed: ", file, err)
+		elog.Info("get file stat failed: ", err)
 		return err
 	}
 
@@ -151,27 +163,28 @@ func (p *Uploader) UploadWithContext(ctx context.Context, file string, key strin
 	})
 
 	if fInfo.Size() <= p.partSize {
-		return p.retry(&uploader, func() error {
-			return uploader.Put2(ctx, ret, upToken, key, newReaderAtNopCloser(f), fInfo.Size(), nil)
+		return p.Retry(&uploader, func() error {
+			err := uploader.Put2(ctx, nil, upToken, key, ioutil.NopCloser(f), fInfo.Size(), nil)
+			if err == nil {
+				return nil
+			}
+			_, err = f.Seek(0, io.SeekStart)
+			return err
 		})
 	}
 
-	return p.retry(&uploader, func() error {
-		return uploader.Upload(ctx, ret, upToken, key, newReaderAtNopCloser(f), fInfo.Size(), nil,
+	return p.Retry(&uploader, func() error {
+		return uploader.Upload(ctx, nil, upToken, key, newReaderAtNopCloser(f), fInfo.Size(), nil,
 			func(partIdx int, etag string) {
-				elog.Info("upload", key, "callback", "part:", partIdx, "etag:", etag)
+				elog.Info("callback", partIdx, etag)
 			})
 	})
 }
 
-func (p *Uploader) UploadReader(reader io.Reader, key string) error {
-	return p.UploadReaderWithContext(context.Background(), reader, key, nil)
-}
-
-func (p *Uploader) UploadReaderWithContext(ctx context.Context, reader io.Reader, key string, ret interface{}) error {
+func (p *Uploader) UploadWithDataChan(ctx context.Context, key string, concurrency int, dataCh chan q.PartData, ret interface{}, initNotify func(suggestedPartSize int64)) (err error) {
 	t := time.Now()
 	defer func() {
-		elog.Info("upload file:", key, "time:", time.Since(t))
+		elog.Info("up time ", key, time.Now().Sub(t))
 	}()
 	key = strings.TrimPrefix(key, "/")
 	policy := kodo.PutPolicy{
@@ -181,104 +194,42 @@ func (p *Uploader) UploadReaderWithContext(ctx context.Context, reader io.Reader
 	upToken := p.makeUptoken(&policy)
 
 	var uploader = q.NewUploader(1, &q.UploadConfig{
-		UploadPartSize: p.partSize,
-		Concurrency:    p.upConcurrency,
-		Transport:      p.transport,
-		HostSelector:   p.upSelector,
-	})
-
-	bufReader := bufio.NewReader(reader)
-	firstPart, err := ioutil.ReadAll(io.LimitReader(bufReader, p.partSize))
-	if err != nil {
-		return err
-	}
-
-	smallUpload := false
-	if len(firstPart) < int(p.partSize) {
-		smallUpload = true
-	} else if _, err = bufReader.Peek(1); err != nil {
-		if err == io.EOF {
-			smallUpload = true
-		} else {
-			return err
-		}
-	}
-
-	if smallUpload {
-		return p.retry(&uploader, func() error {
-			return uploader.Put2(ctx, ret, upToken, key, bytes.NewReader(firstPart), int64(len(firstPart)), nil)
-		})
-	}
-
-	return uploader.StreamUpload(ctx, ret, upToken, key, io.MultiReader(bytes.NewReader(firstPart), bufReader),
-		func(partIdx int, etag string) {
-			elog.Info("upload", key, "callback", "part:", partIdx, "etag:", etag)
-		})
-}
-
-func (p *Uploader) UploadWithDataChan(key string, dataCh chan q.PartData, ret interface{}, initNotify func(suggestedPartSize int64)) error {
-	return p.UploadWithDataChanWithContext(context.Background(), key, dataCh, ret, initNotify)
-}
-
-func (p *Uploader) UploadWithDataChanWithContext(ctx context.Context, key string, dataCh chan q.PartData, ret interface{}, initNotify func(suggestedPartSize int64)) error {
-	t := time.Now()
-	defer func() {
-		elog.Info("upload file:", key, "time:", time.Since(t))
-	}()
-	key = strings.TrimPrefix(key, "/")
-	policy := kodo.PutPolicy{
-		Scope:   p.bucket + ":" + key,
-		Expires: 3600*24 + uint32(time.Now().Unix()),
-	}
-	upToken := p.makeUptoken(&policy)
-
-	var uploader = q.NewUploader(1, &q.UploadConfig{
-		UploadPartSize: p.partSize,
-		Concurrency:    p.upConcurrency,
-		Transport:      p.transport,
-		HostSelector:   p.upSelector,
+		Concurrency:  concurrency,
+		Transport:    p.transport,
+		HostSelector: p.upSelector,
 	})
 
 	return uploader.UploadWithDataChan(ctx, ret, upToken, key, dataCh, nil, initNotify,
 		func(partIdx int, etag string) {
-			elog.Info("upload", key, "callback", "part:", partIdx, "etag:", etag)
+			elog.Info("callback", partIdx, etag)
 		})
 }
 
 func NewUploader(c *Config) *Uploader {
 	mac := qbox.NewMac(c.Ak, c.Sk)
-	partSize := c.PartSize * 1024 * 1024
-	if partSize < 4*1024*1024 {
-		partSize = 4 * 1024 * 1024
-	}
 	var queryer *Queryer = nil
-
 	if len(c.UcHosts) > 0 {
 		queryer = NewQueryer(c)
 	}
 
-	uploader := &Uploader{
+	p := &Uploader{
 		bucket:        c.Bucket,
+		upHosts:       dupStrings(c.UpHosts),
 		credentials:   mac,
-		partSize:      partSize,
+		partSize:      c.PartSize,
 		upConcurrency: c.UpConcurrency,
 		queryer:       queryer,
-		tries:         c.Retry,
-		transport:     newTransport(time.Duration(c.DialTimeoutMs)*time.Millisecond, 5*time.Second),
+		retry:         c.Retry,
+		transport:     NewTransport(c.DialTimeoutMs),
 	}
 	update := func() []string {
-		if uploader.queryer != nil {
-			return uploader.queryer.QueryUpHosts(false)
+		if p.queryer != nil {
+			return p.queryer.QueryUpHosts(false)
 		}
 		return nil
 	}
-	uploader.upSelector = NewHostSelector(dupStrings(c.UpHosts), update, 0, time.Duration(c.PunishTimeS)*time.Second, 0, -1, shouldRetry)
-
-	if uploader.tries <= 0 {
-		uploader.tries = 5
-	}
-
-	return uploader
+	p.upSelector = NewHostSelector(p.upHosts, update, 0, c.PunishTimeS, shouldRetry)
+	return p
 }
 
 func NewUploaderV2() *Uploader {

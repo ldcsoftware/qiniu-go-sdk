@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/qiniupd/qiniu-go-sdk/x/bytes.v7"
-	"github.com/qiniupd/qiniu-go-sdk/x/curl.v1"
 	"github.com/qiniupd/qiniu-go-sdk/x/rpc.v7"
 	"github.com/qiniupd/qiniu-go-sdk/x/xlog.v7"
 
@@ -35,14 +34,7 @@ func (t *uptokenTransport) RoundTrip(req *http.Request) (resp *http.Response, er
 
 func newUptokenTransport(token string, transport http.RoundTripper) *uptokenTransport {
 	if transport == nil {
-		transport = &curl.Transport{
-			Timeout:                  10 * time.Second,
-			ConnectTimeout:           500 * time.Microsecond,
-			DisableExpect100Continue: true,
-			FollowLocation:           true,
-			LowSpeedDuration:         5 * time.Second,
-			LowSpeedBytesPerSecond:   1 << 20,
-		}
+		transport = http.DefaultTransport
 	}
 	return &uptokenTransport{"UpToken " + token, transport}
 }
@@ -55,9 +47,9 @@ func newUptokenClient(token string, transport http.RoundTripper) *http.Client {
 // ----------------------------------------------------------
 
 func (p Uploader) mkblk(
-	ctx Context, host string, ret *BlkputRet, blockSize int, body io.Reader, size int) error {
+	ctx Context, ret *BlkputRet, blockSize int, body io.Reader, size int) error {
 
-	url := host + "/mkblk/" + strconv.Itoa(blockSize)
+	url := p.chooseUpHost() + "/mkblk/" + strconv.Itoa(blockSize)
 	return p.Conn.CallWith(ctx, ret, "POST", url, "application/octet-stream", body, size)
 }
 
@@ -71,7 +63,7 @@ func (p Uploader) bput(
 // ----------------------------------------------------------
 
 func (p Uploader) resumableBput(
-	ctx Context, host string, ret *BlkputRet, f io.ReaderAt, blkIdx, blkSize int, extra *RputExtra) (err error) {
+	ctx Context, ret *BlkputRet, f io.ReaderAt, blkIdx, blkSize int, extra *RputExtra) (err error) {
 
 	xl := xlog.NewWith(ctx)
 	h := crc32.NewIEEE()
@@ -91,7 +83,7 @@ func (p Uploader) resumableBput(
 		body1 := io.NewSectionReader(f, offbase, int64(bodyLength))
 		body := io.TeeReader(body1, h)
 
-		err = p.mkblk(ctx, host, ret, blkSize, body, bodyLength)
+		err = p.mkblk(ctx, ret, blkSize, body, bodyLength)
 		if err != nil {
 			return
 		}
@@ -146,9 +138,9 @@ func (p Uploader) resumableBput(
 // ----------------------------------------------------------
 
 func (p Uploader) mkfile(
-	ctx Context, host string, ret interface{}, key string, hasKey bool, fsize int64, extra *RputExtra) (err error) {
+	ctx Context, ret interface{}, key string, hasKey bool, fsize int64, extra *RputExtra) (err error) {
 
-	url := host + "/mkfile/" + strconv.FormatInt(fsize, 10)
+	url := p.chooseUpHost() + "/mkfile/" + strconv.FormatInt(fsize, 10)
 
 	if extra.MimeType != "" {
 		url += "/mimeType/" + encode(extra.MimeType)
@@ -181,16 +173,6 @@ func (p Uploader) mkfile(
 
 func encode(raw string) string {
 	return base64.URLEncoding.EncodeToString([]byte(raw))
-}
-
-func encodeKey(key string, hasKey bool) string {
-	if !hasKey {
-		return "~"
-	} else if key == "" {
-		return ""
-	} else {
-		return encode(key)
-	}
 }
 
 // ----------------------------------------------------------

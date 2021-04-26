@@ -93,7 +93,7 @@ func New(zone int, cfg *Config) (p *Client) {
 	}
 
 	p.mac = qbox.NewMac(p.AccessKey, p.SecretKey)
-	p.Client = rpc.Client{Client: qbox.NewClient(p.mac, p.Transport)}
+	p.Client = rpc.Client{qbox.NewClient(p.mac, p.Transport)}
 
 	if p.RSHost == "" {
 		p.RSHost = defaultRsHost
@@ -103,7 +103,7 @@ func New(zone int, cfg *Config) (p *Client) {
 	}
 
 	if zone < 0 || zone >= len(zones) {
-		return
+		panic("invalid config: invalid zone")
 	}
 	if len(p.UpHosts) == 0 {
 		p.UpHosts = zones[zone].UpHosts
@@ -112,10 +112,6 @@ func New(zone int, cfg *Config) (p *Client) {
 		p.IoHost = zones[zone].IoHost
 	}
 	return
-}
-
-func NewWithoutZone(cfg *Config) (p *Client) {
-	return New(-1, cfg)
 }
 
 // ----------------------------------------------------------

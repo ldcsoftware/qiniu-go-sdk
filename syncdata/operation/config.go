@@ -16,25 +16,25 @@ import (
 )
 
 type Config struct {
-	IoHosts       []string `json:"io_hosts" toml:"io_hosts"`
-	UcHosts       []string `json:"uc_hosts" toml:"uc_hosts"`
-	UpHosts       []string `json:"up_hosts" toml:"up_hosts"`
-	RsHosts       []string `json:"rs_hosts" toml:"rs_hosts"`
-	RsfHosts      []string `json:"rsf_hosts" toml:"rsf_hosts"`
-	Bucket        string   `json:"bucket" toml:"bucket"`
-	Ak            string   `json:"ak" toml:"ak"`
-	Sk            string   `json:"sk" toml:"sk"`
-	PartSize      int64    `json:"part" toml:"part"`
-	Addr          string   `json:"addr" toml:"addr"`
-	Delete        bool     `json:"delete" toml:"delete"`
-	UpConcurrency int      `json:"up_concurrency" toml:"up_concurrency"`
+	UpHosts  []string `json:"up_hosts" toml:"up_hosts"`
+	RsHosts  []string `json:"rs_hosts" toml:"rs_hosts"`
+	RsfHosts []string `json:"rsf_hosts" toml:"rsf_hosts"`
+	IoHosts  []string `json:"io_hosts" toml:"io_hosts"`
+	UcHosts  []string `json:"uc_hosts" toml:"uc_hosts"`
 
-	DownPath string `json:"down_path" toml:"down_path"`
-	Sim      bool   `json:"sim" toml:"sim"`
-
-	Retry         int `json:"retry" toml:"retry"`
-	PunishTimeS   int `json:"punish_time_s" toml:"punish_time_s"`
-	DialTimeoutMs int `json:"dial_timeout_ms" toml:"dial_timeout_ms"`
+	Bucket        string `json:"bucket" toml:"bucket"`
+	Ak            string `json:"ak" toml:"ak"`
+	Sk            string `json:"sk" toml:"sk"`
+	PartSize      int64  `json:"part" toml:"part"`
+	Addr          string `json:"addr" toml:"addr"`
+	Delete        bool   `json:"delete" toml:"delete"`
+	UpConcurrency int    `json:"up_concurrency"`
+	Retry         int    `json:"retry"`
+	PunishTimeS   int    `json:"punish_time_s"`
+	DownPath      string `json:"down_path" toml:"down_path"`
+	Sim           bool   `json:"sim" toml:"sim"`
+	DialTimeoutMs int    `json:"dial_timeout_ms"`
+	HostPinTimeMs int    `json:"host_pin_time_ms"`
 }
 
 func dupStrings(s []string) []string {

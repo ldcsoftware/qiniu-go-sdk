@@ -1,168 +1,123 @@
 package operation
 
 import (
-	"math/rand"
-	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
-var (
-	random     *rand.Rand
-	randomLock sync.Mutex
-)
-
-func init() {
-	random = rand.New(rand.NewSource(time.Now().UnixNano() | int64(os.Getpid())))
+type selHost struct {
+	host   string
+	expire int64
 }
 
-type (
-	punishedInfo struct {
-		m                       sync.Mutex
-		lastPunishededAt        time.Time
-		continuousPunishedTimes int
-	}
-
-	HostSelector struct {
-		hostsValue              atomic.Value
-		hostsMap                sync.Map
-		update                  func() []string
-		updateDuration          time.Duration
-		punishDuration          time.Duration
-		maxPunishedTimes        int
-		maxPunishedHostsPrecent int
-		shouldPunish            func(error) bool
-		index                   uint32
-	}
-)
-
-func NewHostSelector(hosts []string, update func() []string, updateDuration, punishDuration time.Duration,
-	maxPunishedTimes, maxPunishedHostsPrecent int, shouldPunish func(error) bool) *HostSelector {
-
-	if updateDuration <= time.Duration(0) {
-		updateDuration = 5 * time.Minute
-	}
-	if punishDuration <= time.Duration(0) {
-		punishDuration = 30 * time.Second
-	}
-	if maxPunishedTimes <= 0 {
-		maxPunishedTimes = 5
-	}
-	if maxPunishedHostsPrecent < 0 {
-		maxPunishedHostsPrecent = 50
-	}
-
-	hostSelector := &HostSelector{
-		update:                  update,
-		updateDuration:          updateDuration,
-		punishDuration:          punishDuration,
-		maxPunishedTimes:        maxPunishedTimes,
-		maxPunishedHostsPrecent: maxPunishedHostsPrecent,
-		shouldPunish:            shouldPunish,
-	}
-	hostSelector.setHosts(hosts)
-	hostSelector.updateHosts()
-	go hostSelector.updateWorker()
-	return hostSelector
+type HostSelector struct {
+	hosts        []selHost
+	update       func() []string
+	updateTimeS  int
+	punishTimeS  int
+	shouldPunish func(error) bool
+	mutex        sync.RWMutex
+	punishHostM  map[string]int64
+	idx          int
 }
 
-func (hostSelector *HostSelector) updateWorker() {
-	for {
-		time.Sleep(hostSelector.updateDuration)
-		hostSelector.updateHosts()
+func NewHostSelector(hosts []string, update func() []string, updateTimeS, punishTimeS int, shouldPunish func(error) bool) *HostSelector {
+	if punishTimeS == 0 {
+		punishTimeS = 30
 	}
-}
+	if updateTimeS == 0 {
+		updateTimeS = 300
+	}
 
-func (hostSelector *HostSelector) setHosts(hosts []string) {
-	newHostsMap := make(map[string]struct{}, len(hosts))
-	for _, host := range hosts {
-		newHostsMap[host] = struct{}{}
-		hostSelector.hostsMap.LoadOrStore(host, &punishedInfo{})
+	hs := &HostSelector{
+		update:       update,
+		updateTimeS:  updateTimeS,
+		punishTimeS:  punishTimeS,
+		shouldPunish: shouldPunish,
 	}
-	hostSelector.hostsMap.Range(func(hostVal, _ interface{}) bool {
-		host := hostVal.(string)
-		if _, ok := newHostsMap[host]; !ok {
-			hostSelector.hostsMap.Delete(host)
+	hs.setHosts(hosts)
+	hs.hostUpdate()
+	go func() {
+		for {
+			time.Sleep(time.Duration(hs.updateTimeS) * time.Second)
+			hs.hostUpdate()
 		}
-		return true
-	})
-
-	randomLock.Lock()
-	random.Shuffle(len(hosts), func(i, j int) {
-		hosts[i], hosts[j] = hosts[j], hosts[i]
-	})
-	randomLock.Unlock()
-
-	hostSelector.hostsValue.Store(hosts)
+	}()
+	return hs
 }
 
-func (hostSelector *HostSelector) updateHosts() {
-	var newHosts []string
-	if hostSelector.update != nil {
-		newHosts = hostSelector.update()
-	}
+func (hs *HostSelector) hostUpdate() {
+	newHosts := hs.update()
 	if len(newHosts) > 0 {
-		hostSelector.setHosts(newHosts)
+		hs.setHosts(newHosts)
 	}
 }
 
-func (hostSelector *HostSelector) SelectHost() string {
-	var (
-		currentHost = ""
-		hosts       = hostSelector.hostsValue.Load().([]string)
-	)
+func (hs *HostSelector) setHosts(hosts []string) {
+	elog.Info("update host", hosts)
 
-	for i := 0; i <= len(hosts)*hostSelector.maxPunishedHostsPrecent/100; i++ {
-		hostIndex := int(atomic.AddUint32(&hostSelector.index, 1) - 1)
-		currentHost = hosts[hostIndex%len(hosts)]
-		if punishedInfoVal, exists := hostSelector.hostsMap.Load(currentHost); exists {
-			info := punishedInfoVal.(*punishedInfo)
-			info.m.Lock()
-			defer info.m.Unlock()
+	hs.mutex.Lock()
+	defer hs.mutex.Unlock()
 
-			if info.continuousPunishedTimes <= hostSelector.maxPunishedTimes ||
-				info.lastPunishededAt.Add(hostSelector.punishDuration).Before(time.Now()) {
+	selHosts := make([]selHost, len(hosts))
+	for i := range hosts {
+		var expire int64
+		for j := range hs.hosts {
+			if hosts[i] == hs.hosts[j].host {
+				expire = hs.hosts[j].expire
 				break
 			}
 		}
+		selHosts[i] = selHost{host: hosts[i], expire: expire}
 	}
-
-	if currentHost == "" {
-		panic("Cannot select host")
-	}
-
-	return currentHost
+	hs.hosts = selHosts
 }
 
-func (hostSelector *HostSelector) Reward(host string) {
-	if punishedInfoVal, ok := hostSelector.hostsMap.Load(host); ok {
-		info := punishedInfoVal.(*punishedInfo)
-		info.m.Lock()
-		defer info.m.Unlock()
+func (hs *HostSelector) SelectHost() string {
+	hs.mutex.RLock()
+	defer hs.mutex.RUnlock()
 
-		info.continuousPunishedTimes = 0
-		info.lastPunishededAt = time.Time{}
+	if len(hs.hosts) == 0 {
+		return ""
 	}
-}
-
-func (hostSelector *HostSelector) Punish(host string) {
-	if punishedInfoVal, ok := hostSelector.hostsMap.Load(host); ok {
-		info := punishedInfoVal.(*punishedInfo)
-		info.m.Lock()
-		defer info.m.Unlock()
-
-		info.continuousPunishedTimes += 1
-		info.lastPunishededAt = time.Now()
+	tryTime := 0
+	now := time.Now().UnixNano()
+	for {
+		hs.idx += 1
+		tryTime += 1
+		currHost := hs.hosts[hs.idx%len(hs.hosts)]
+		if tryTime > len(hs.hosts) || now >= currHost.expire {
+			return currHost.host
+		}
 	}
 }
 
-func (hostSelector *HostSelector) PunishIfNeeded(host string, err error) {
-	needed := true
-	if hostSelector.shouldPunish != nil {
-		needed = hostSelector.shouldPunish(err)
+func (hs *HostSelector) SetPunish(host string) {
+	hs.mutex.Lock()
+	defer hs.mutex.Unlock()
+
+	for i := range hs.hosts {
+		if hs.hosts[i].host == host {
+			hs.hosts[i].expire = time.Now().Add(time.Duration(hs.punishTimeS) * time.Second).UnixNano()
+			break
+		}
 	}
-	if needed {
-		hostSelector.Punish(host)
+}
+
+func (hs *HostSelector) IsPunished(host string) bool {
+	hs.mutex.Lock()
+	defer hs.mutex.Unlock()
+
+	for i := range hs.hosts {
+		if hs.hosts[i].host == host {
+			return time.Now().UnixNano() < hs.hosts[i].expire
+		}
+	}
+	return false
+}
+
+func (hs *HostSelector) SetFailed(host string, err error) {
+	if hs.shouldPunish(err) {
+		hs.SetPunish(host)
 	}
 }

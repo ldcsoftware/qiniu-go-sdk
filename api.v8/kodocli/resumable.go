@@ -235,10 +235,8 @@ func (p Uploader) rput(
 			defer wg.Done()
 			tryTimes := extra.TryTimes
 		lzRetry:
-			upHost := p.chooseUpHost()
-			err := p.resumableBput(ctx, upHost, &extra.Progresses[blkIdx], f, blkIdx, blkSize1, extra)
+			err := p.resumableBput(ctx, &extra.Progresses[blkIdx], f, blkIdx, blkSize1, extra)
 			if err != nil {
-				p.punishHost(upHost, err)
 				if tryTimes > 1 {
 					tryTimes--
 					elog.Info(xl.ReqId, "resumable.Put retrying ...")
@@ -247,8 +245,6 @@ func (p Uploader) rput(
 				elog.Warn(xl.ReqId, "resumable.Put", blkIdx, "failed:", err)
 				extra.NotifyErr(blkIdx, blkSize1, err)
 				nfails++
-			} else {
-				p.rewardHost(upHost)
 			}
 		}
 		tasks <- task
@@ -259,7 +255,7 @@ func (p Uploader) rput(
 		return ErrPutFailed
 	}
 
-	return p.mkfile(ctx, p.chooseUpHost(), ret, key, hasKey, fsize, extra)
+	return p.mkfile(ctx, ret, key, hasKey, fsize, extra)
 }
 
 func (p Uploader) rputFile(

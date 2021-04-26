@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"runtime"
 	"strconv"
 	"strings"
@@ -65,6 +66,10 @@ func HttpCodeOf(err error) (code int, desc string) {
 	var hc httpCoder
 	if errors.As(err, &hc) {
 		return hc.HttpCode(), err.Error()
+	}
+
+	if e, ok := err.(net.Error); ok && e.Timeout() {
+		return 504, "net timeout"
 	}
 
 	switch err {

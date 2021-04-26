@@ -17,7 +17,9 @@ import (
 	. "context"
 )
 
-var UserAgent string
+var (
+	UserAgent = "Golang qiniu/rpc package 0.1.15"
+)
 
 var (
 	ErrInvalidRequestURL = errors.New("invalid request url")
@@ -257,7 +259,9 @@ func CallRet(ctx Context, ret interface{}, resp *http.Response) (err error) {
 				return
 			}
 		}
+		//if resp.StatusCode == 200 {
 		return nil
+		//}
 	}
 	return ResponseError(resp)
 }

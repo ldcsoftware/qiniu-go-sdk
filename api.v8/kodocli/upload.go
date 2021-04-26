@@ -4,6 +4,7 @@ import (
 	"bytes"
 	. "context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"hash"
 	"hash/crc32"
@@ -115,19 +116,21 @@ var defaultPutExtra PutExtra
 
 func (p Uploader) put(
 	ctx Context, ret interface{}, uptoken string,
-	key string, hasKey bool, dataReaderAt io.ReaderAt, size int64, extra *PutExtra, fileName string) (err error) {
+	key string, hasKey bool, data io.ReadSeeker, size int64, extra *PutExtra, fileName string) (err error) {
 
 	if extra == nil {
 		extra = &defaultPutExtra
 	}
 
+	if extra.OnProgress != nil {
+		data = &readerWithProgress{reader: data, fsize: size, onProgress: extra.OnProgress}
+	}
 	tryTimes := formUploadRetryTimes
 	xl := xlog.NewWith(xlog.FromContextSafe(ctx).ReqId())
 
 lzRetry:
-	var data io.Reader = io.NewSectionReader(dataReaderAt, 0, size)
-	if extra.OnProgress != nil {
-		data = &readerWithProgress{reader: data, fsize: size, onProgress: extra.OnProgress}
+	if _, err = data.Seek(0, io.SeekStart); err != nil {
+		return
 	}
 
 	b := new(bytes.Buffer)
@@ -190,8 +193,7 @@ lzRetry:
 
 	contentType := writer.FormDataContentType()
 	var req *http.Request
-	upHost := p.chooseUpHost()
-	req, err = rpc.NewRequest("POST", upHost, io.MultiReader(mr, eofReaderFunc(func() {
+	req, err = rpc.NewRequest("POST", p.chooseUpHost(), io.MultiReader(mr, eofReaderFunc(func() {
 		if extra.Md5Trailer != nil {
 			if m := extra.Md5Trailer(); m != nil && req != nil {
 				req.Trailer.Set("Content-Md5", base64.StdEncoding.EncodeToString(m))
@@ -199,7 +201,6 @@ lzRetry:
 		}
 	})))
 	if err != nil {
-		p.punishHost(upHost, err)
 		return
 	}
 	req.Header.Set("Content-Type", contentType)
@@ -214,25 +215,18 @@ lzRetry:
 		}
 		code := httputil.DetectCode(err)
 		if code == 509 {
-			p.punishHost(upHost, err)
-			elog.Warn(xl.ReqId(), "put:", key, "formUploadRetryLater:", err)
+			elog.Warn(xl.ReqId(), "formUploadRetryLater:", err)
 			time.Sleep(time.Second * time.Duration(rand.Intn(9)+1))
 			goto lzRetry
 		} else if tryTimes > 1 && (code == 406 || code/100 != 4) {
-			p.punishHost(upHost, err)
 			tryTimes--
-			elog.Warn(xl.ReqId(), "put:", key, "formUploadRetry:", err)
+			elog.Warn(xl.ReqId(), "formUploadRetry:", err)
 			time.Sleep(time.Second * 3)
 			goto lzRetry
 		}
 		return err
 	}
 	err = rpc.CallRet(ctx, ret, resp)
-	if err != nil {
-		p.punishHost(upHost, err)
-	} else {
-		p.rewardHost(upHost)
-	}
 	if extra.OnProgress != nil {
 		extra.OnProgress(size, size)
 	}
@@ -250,19 +244,31 @@ func (f eofReaderFunc) Read(p []byte) (n int, err error) {
 // ----------------------------------------------------------
 
 type readerWithProgress struct {
-	reader     io.Reader
+	reader     io.ReadSeeker
 	uploaded   int64
 	fsize      int64
 	onProgress func(fsize, uploaded int64)
 }
 
 func (p *readerWithProgress) Read(b []byte) (n int, err error) {
+
 	if p.uploaded > 0 {
 		p.onProgress(p.fsize, p.uploaded)
 	}
 
 	n, err = p.reader.Read(b)
 	p.uploaded += int64(n)
+	return
+}
+
+func (p *readerWithProgress) Seek(offset int64, whence int) (ret int64, err error) {
+	if whence != io.SeekStart || offset != 0 {
+		return 0, errors.New("readerWithProgress can only support to seek to the start of file")
+	}
+	ret, err = p.reader.Seek(offset, whence)
+	if err == nil {
+		p.uploaded = 0
+	}
 	return
 }
 
@@ -308,6 +314,17 @@ var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
 
 func escapeQuotes(s string) string {
 	return quoteEscaper.Replace(s)
+}
+
+// ----------------------------------------------------------
+
+func getFileCrc32(f *os.File) (uint32, error) {
+
+	h := crc32.NewIEEE()
+	_, err := io.Copy(h, f)
+	f.Seek(0, 0)
+
+	return h.Sum32(), err
 }
 
 // ----------------------------------------------------------
@@ -361,16 +378,20 @@ func (r crc32Reader) length() (length int64) {
 // extra   是上传的一些可选项。详细见 PutExtra 结构的描述。
 //
 func (p Uploader) Put2(
-	ctx Context, ret interface{}, uptoken, key string, data io.ReaderAt, size int64, extra *PutExtra) error {
+	ctx Context, ret interface{}, uptoken, key string, data io.Reader, size int64, extra *PutExtra) error {
 
-	return p.put2(ctx, ret, uptoken, key, data, size, extra)
+	host := p.chooseUpHost()
+	err := p.put2(ctx, ret, uptoken, key, host, data, size, extra)
+	if err != nil {
+		p.setFailed(host, err)
+	}
+	return err
 }
 
-func (p Uploader) put2(ctx Context, ret interface{}, uptoken, key string, data io.ReaderAt, size int64,
+func (p Uploader) put2(ctx Context, ret interface{}, uptoken, key, host string, data io.Reader, size int64,
 	extra *PutExtra) error {
 
-	upHost := p.chooseUpHost()
-	url := upHost + "/put/" + strconv.FormatInt(size, 10)
+	url := host + "/put/" + strconv.FormatInt(size, 10)
 	if extra != nil {
 		if extra.MimeType != "" {
 			url += "/mimeType/" + base64.URLEncoding.EncodeToString([]byte(extra.MimeType))
@@ -388,10 +409,9 @@ func (p Uploader) put2(ctx Context, ret interface{}, uptoken, key string, data i
 	if key != "" {
 		url += "/key/" + base64.URLEncoding.EncodeToString([]byte(key))
 	}
-	elog.Debug("Put2", key, url)
-	req, err := http.NewRequest("POST", url, io.NewSectionReader(data, 0, size))
+	elog.Debug("Put2", url)
+	req, err := http.NewRequest("POST", url, data)
 	if err != nil {
-		p.punishHost(upHost, err)
 		return err
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
@@ -399,26 +419,19 @@ func (p Uploader) put2(ctx Context, ret interface{}, uptoken, key string, data i
 	req.ContentLength = size
 	resp, err := p.Conn.Do(ctx, req)
 	if err != nil {
-		p.punishHost(upHost, err)
 		return err
 	}
 	err = rpc.CallRet(ctx, ret, resp)
 	if err != nil {
-		p.punishHost(upHost, err)
 		return err
 	}
-	p.rewardHost(upHost)
-	return nil
+	return err
 }
 
 func (p Uploader) chooseUpHost() string {
 	return p.HostSelector.SelectHost()
 }
 
-func (p Uploader) punishHost(upHost string, err error) {
-	p.HostSelector.PunishIfNeeded(upHost, err)
-}
-
-func (p Uploader) rewardHost(upHost string) {
-	p.HostSelector.Reward(upHost)
+func (p Uploader) setFailed(host string, err error) {
+	p.HostSelector.SetFailed(host, err)
 }

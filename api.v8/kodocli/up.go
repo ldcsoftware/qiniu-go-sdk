@@ -7,13 +7,6 @@ import (
 	digest "github.com/qiniupd/qiniu-go-sdk/api.v8/auth/qbox"
 )
 
-type FileType uint32
-
-const (
-	TypeNormal = iota
-	TypeLine
-)
-
 type AuthPolicy struct {
 	Scope               string   `json:"scope"`
 	IsPrefixalScope     uint16   `json:"isPrefixalScope,omitempty"` // 若为非0，则Scope的key部分表示为前缀限定
@@ -69,20 +62,16 @@ func MakeAuthTokenString(key, secret string, auth *AuthPolicy) string {
 
 type IHostSelector interface {
 	SelectHost() string
-	Reward(host string)
-	PunishIfNeeded(host string, err error)
+	SetFailed(host string, err error)
 }
 
 type DefaultSelector struct {
-	Hosts []string
+	UpHosts []string
 }
 
 func (ds *DefaultSelector) SelectHost() string {
-	return ds.Hosts[rand.Intn(len(ds.Hosts))]
+	return ds.UpHosts[rand.Intn(len(ds.UpHosts))]
 }
 
-func (ds *DefaultSelector) Reward(host string) {
-}
-
-func (ds *DefaultSelector) PunishIfNeeded(host string, err error) {
+func (ds *DefaultSelector) SetFailed(host string, err error) {
 }

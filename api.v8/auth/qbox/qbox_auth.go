@@ -10,7 +10,6 @@ import (
 
 	. "github.com/qiniupd/qiniu-go-sdk/api.v8/conf"
 	"github.com/qiniupd/qiniu-go-sdk/x/bytes.v7/seekable"
-	"github.com/qiniupd/qiniu-go-sdk/x/curl.v1"
 )
 
 // ----------------------------------------------------------
@@ -158,14 +157,7 @@ func NewTransport(mac *Mac, transport http.RoundTripper) *Transport {
 		mac = NewMac(ACCESS_KEY, SECRET_KEY)
 	}
 	if transport == nil {
-		transport = &curl.Transport{
-			Timeout:                  5 * time.Second,
-			ConnectTimeout:           500 * time.Millisecond,
-			DisableExpect100Continue: true,
-			FollowLocation:           true,
-			LowSpeedDuration:         1 * time.Second,
-			LowSpeedBytesPerSecond:   1 << 20,
-		}
+		transport = http.DefaultTransport
 	}
 	t := &Transport{mac: *mac, Transport: transport}
 	return t
@@ -174,7 +166,7 @@ func NewTransport(mac *Mac, transport http.RoundTripper) *Transport {
 func NewClient(mac *Mac, transport http.RoundTripper) *http.Client {
 
 	t := NewTransport(mac, transport)
-	return &http.Client{Transport: t, Timeout: 5 * time.Second}
+	return &http.Client{Transport: t, Timeout: 10 * time.Minute}
 }
 
 // ---------------------------------------------------------------------------------------
