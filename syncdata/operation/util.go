@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/qiniupd/qiniu-go-sdk/x/httputil.v1"
+	"github.com/ldcsoftware/qiniu-go-sdk/x/httputil.v1"
 )
 
 func shouldRetry(err error) bool {

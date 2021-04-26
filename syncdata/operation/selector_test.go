@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/qiniupd/qiniu-go-sdk/x/log.v7"
+	"github.com/ldcsoftware/qiniu-go-sdk/x/log.v7"
 )
 
 func checkHost(host string, hosts []string) bool {

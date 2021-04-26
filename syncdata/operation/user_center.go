@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/qiniupd/qiniu-go-sdk/api.v8/auth/qbox"
-	"github.com/qiniupd/qiniu-go-sdk/x/rpc.v7"
+	"github.com/ldcsoftware/qiniu-go-sdk/api.v8/auth/qbox"
+	"github.com/ldcsoftware/qiniu-go-sdk/x/rpc.v7"
 )
 
 type UserCenter struct {

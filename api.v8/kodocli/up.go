@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"math/rand"
 
-	digest "github.com/qiniupd/qiniu-go-sdk/api.v8/auth/qbox"
+	digest "github.com/ldcsoftware/qiniu-go-sdk/api.v8/auth/qbox"
 )
 
 type AuthPolicy struct {

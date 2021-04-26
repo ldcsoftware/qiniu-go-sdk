@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qiniupd/qiniu-go-sdk/x/bytes.v7"
+	"github.com/ldcsoftware/qiniu-go-sdk/x/bytes.v7"
 
-	"github.com/qiniupd/qiniu-go-sdk/api.v8/auth/qbox"
-	"github.com/qiniupd/qiniu-go-sdk/api.v8/kodo"
-	q "github.com/qiniupd/qiniu-go-sdk/api.v8/kodocli"
+	"github.com/ldcsoftware/qiniu-go-sdk/api.v8/auth/qbox"
+	"github.com/ldcsoftware/qiniu-go-sdk/api.v8/kodo"
+	q "github.com/ldcsoftware/qiniu-go-sdk/api.v8/kodocli"
 )
 
 type Uploader struct {

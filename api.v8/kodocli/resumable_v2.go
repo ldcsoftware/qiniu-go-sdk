@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/qiniupd/qiniu-go-sdk/api.v8/limit"
-	"github.com/qiniupd/qiniu-go-sdk/x/httputil.v1"
-	"github.com/qiniupd/qiniu-go-sdk/x/xlog.v8"
+	"github.com/ldcsoftware/qiniu-go-sdk/api.v8/limit"
+	"github.com/ldcsoftware/qiniu-go-sdk/x/httputil.v1"
+	"github.com/ldcsoftware/qiniu-go-sdk/x/xlog.v8"
 )
 
 const minUploadPartSize = 1 << 22

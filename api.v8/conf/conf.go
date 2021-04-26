@@ -5,8 +5,8 @@ import (
 	"runtime"
 	"syscall"
 
-	"github.com/qiniupd/qiniu-go-sdk/x/ctype.v7"
-	"github.com/qiniupd/qiniu-go-sdk/x/rpc.v7"
+	"github.com/ldcsoftware/qiniu-go-sdk/x/ctype.v7"
+	"github.com/ldcsoftware/qiniu-go-sdk/x/rpc.v7"
 )
 
 var version = "7.1.0"

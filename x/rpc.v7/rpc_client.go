@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qiniupd/qiniu-go-sdk/x/xlog.v8"
+	"github.com/ldcsoftware/qiniu-go-sdk/x/xlog.v8"
 
 	. "context"
 )

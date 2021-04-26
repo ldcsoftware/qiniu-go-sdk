@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/qiniupd/qiniu-go-sdk/api.v8/kodocli"
-	"github.com/qiniupd/qiniu-go-sdk/x/rpc.v7"
+	"github.com/ldcsoftware/qiniu-go-sdk/api.v8/kodocli"
+	"github.com/ldcsoftware/qiniu-go-sdk/x/rpc.v7"
 
 	. "context"
 )

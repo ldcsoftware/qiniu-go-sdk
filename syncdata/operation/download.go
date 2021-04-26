@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qiniupd/qiniu-go-sdk/api.v8/auth/qbox"
+	"github.com/ldcsoftware/qiniu-go-sdk/api.v8/auth/qbox"
 )
 
 type Downloader struct {

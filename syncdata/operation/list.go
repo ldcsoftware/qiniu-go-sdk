@@ -8,8 +8,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/qiniupd/qiniu-go-sdk/api.v8/auth/qbox"
-	"github.com/qiniupd/qiniu-go-sdk/api.v8/kodo"
+	"github.com/ldcsoftware/qiniu-go-sdk/api.v8/auth/qbox"
+	"github.com/ldcsoftware/qiniu-go-sdk/api.v8/kodo"
 )
 
 var random = rand.New(rand.NewSource(time.Now().UnixNano() | int64(os.Getpid())))
